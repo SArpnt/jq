@@ -27,15 +27,14 @@
 // Color table. See https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
 // for how to choose these. The order is same as jv_kind definition, and
 // the last color is used for object keys.
-#define DEFAULT_COLORS \
+static const char *colors[] =
   {COL("0;90"),    COL("0;39"),      COL("0;39"),     COL("0;39"),\
    COL("0;32"),    COL("1;39"),      COL("1;39"),     COL("1;34")};
-static const char *const default_colors[] = DEFAULT_COLORS;
-static const char *colors[] = DEFAULT_COLORS;
 #define COLORS_LEN (sizeof(colors) / sizeof(colors[0]))
 #define FIELD_COLOR (colors[7])
 
-static char *colors_buf = NULL;
+// will leak memory if called more than once
+// will not reset previous colors
 int jq_set_colors(const char *code_str) {
   if (code_str == NULL)
     return 1;
@@ -43,8 +42,6 @@ int jq_set_colors(const char *code_str) {
   // the start of each color code in the env var, and the byte after the end of the last one
   const char *codes[COLORS_LEN + 1];
   size_t num_colors;
-  // must be initialized before `goto reset`, used later to loop over every color
-  size_t ci = 0;
 
   for (num_colors = 0; num_colors < COLORS_LEN; num_colors++) {
     codes[num_colors] = code_str;
@@ -70,35 +67,24 @@ int jq_set_colors(const char *code_str) {
     num_colors++;
     codes[num_colors] = code_str + 1;
   } else if (num_colors == 0) {
-    if (colors_buf != NULL) {
-      jv_mem_free(colors_buf);
-      colors_buf = NULL;
-    }
-    goto default_colors;
+    return 0;
   }
 
-  colors_buf = jv_mem_realloc(
-    colors_buf,
-    // add ESC '[' 'm' to each string
-    // '\0' is already included in difference of codes
-    codes[num_colors] - codes[0] + 3 * num_colors
-  );
-  char *cb = colors_buf;
-  for (; ci < num_colors; ci++) {
-    colors[ci] = cb;
-    size_t len = codes[ci + 1] - 1 - codes[ci];
+  // add ESC '[' 'm' to each string
+  // '\0' is already included in difference of codes
+  char *colors_buf = jv_mem_alloc(codes[num_colors] - codes[0] + 3 * num_colors);
+  for (size_t i = 0; i < num_colors; i++) {
+    colors[i] = colors_buf;
+    size_t len = codes[i + 1] - 1 - codes[i];
 
-    cb[0] = ESC[0];
-    cb[1] = '[';
-    memcpy(cb + 2, codes[ci], len);
-    cb[2 + len] = 'm';
-    cb[3 + len] = '\0';
+    colors_buf[0] = ESC[0];
+    colors_buf[1] = '[';
+    memcpy(colors_buf + 2, codes[i], len);
+    colors_buf[2 + len] = 'm';
+    colors_buf[3 + len] = '\0';
 
-    cb += len + 4;
+    colors_buf += len + 4;
   }
-  default_colors:
-  for (; ci < COLORS_LEN; ci++)
-    colors[ci] = default_colors[ci];
   return 1;
 }
 
